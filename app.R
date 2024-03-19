@@ -1,15 +1,12 @@
 library(shiny)
 library(leaflet)
 library(wordcloud)
-library(bslib)
-library(zoo)
-library(shinythemes)
+library(bslib) 
 library(tidyverse)
 library(syuzhet)
-lat_long <- read_csv('lat_long.csv')
-
-getColor <- function(lat_long) {
-  sapply(lat_long$sentiment_score_clean, function(sentiment_score_clean) {
+lat_long_csv <- read_csv('lat_long.csv')
+getColor <- function(lat_long_csv) {
+  sapply(lat_long_csv$sentiment_score_clean, function(sentiment_score_clean) {
     if (sentiment_score_clean < 0) {
       return("red")
     } else {
@@ -21,45 +18,49 @@ icons <- awesomeIcons(
   icon = 'ios-close',
   iconColor = 'black',
   library = 'ion',
-  markerColor = getColor(lat_long)
+  markerColor = getColor(lat_long_csv)
 )
 ui <- fluidPage(
   theme = bs_theme(version = 4, bootswatch = "minty"),
   titlePanel("Sentiment Analysis and Geocoding"),
   sidebarLayout(
     sidebarPanel(
-      selectInput("row_select", "Select Article:", choices = names(lat_long$title)),
+      selectInput("row_select", "Select Article:", choices = names(data()$title)),
       selectInput("graph_type", "Select Graph Type:", choices = c("Bar Plot" = "Barplot", "Pie Chart" = "PieChart", "Word Cloud" = "WordCloud",
-                                                                  "Emotional Trajectory Plot" = "EmotionalTrajectoryPlot", "Emotional Entropy Plot" = "EmotionalEntropyPlot"))
+                                                                  "Emotional Trajectory Plot" = "EmotionalTrajectoryPlot", "Emotional Entropy Plot" = "EmotionalEntropyPlot")),
+      #uiOutput("conditional_button")
     ),
     mainPanel(
       leafletOutput("map", width = "100%", height = "500px"),
-      uiOutput("selected_graph")
+      uiOutput("selected_graph"), 
+      dataTableOutput('table') #LDA topic model plot
     )
   )
 )
 
 server <- function(input, output, session) {
+  
+  data <- reactiveFileReader(intervalMillis = 60000, session, filePath = 'lat_long.csv', read.csv)
   # Dynamic update for article selection
   observe({
-    updateSelectInput(session, "row_select", choices = lat_long$title, selected = NULL)
+    updateSelectInput(session, "row_select", choices = data()$title, selected = NULL)
   })
-
+  
   output$map <- renderLeaflet({
-    map <- leaflet(lat_long) %>% 
+    map <- leaflet(data()) %>% 
       addTiles() # Start with base tiles
     
     # Apply colors to markers dynamically
-    colors <- getColor(lat_long) # Generate color vector
+    colors <- getColor(data()) # Generate color vector
     
     
     
-    for(i in 1:nrow(lat_long)) {
+    for(i in 1:nrow(data())) {
       map <- map %>% addAwesomeMarkers(
-        lng = jitter(lat_long$longitude[i], amount = 0.01), 
-        lat = jitter(lat_long$latitude[i], amount = 0.01),
-        popup = as.character(lat_long$summarized_text[i]),
-        label = as.character(lat_long$title[i]),
+        lng = jitter(data()$longitude[i], amount = 0.01), 
+        lat = jitter(data()$latitude[i], amount = 0.01),
+        popup = as.character(data()$summarized_text[i]),
+        label = as.character(data()$title[i]),
         icon = awesomeIcons(
           icon = 'ios-close',
           iconColor = 'black',
@@ -67,7 +68,7 @@ server <- function(input, output, session) {
           markerColor = colors[i] # Apply color individually
         ), 
         group = "markers",
-        layerId = as.character(lat_long$title[i])
+        layerId = as.character(data()$title[i])
       )
     }
     
@@ -81,13 +82,15 @@ server <- function(input, output, session) {
     }
   })
   
-
+  
   # Reactive expression for selected rows
   selected_rows <- reactive({
     req(input$row_select)
-    lat_long[lat_long$title == input$row_select, ]
+    data()[data()$title == input$row_select, ]
   })
-
+  
+  
+  
   # Reactive expressions for generating graphs
   output$selected_graph <- renderUI({
     req(input$graph_type)
@@ -103,7 +106,7 @@ server <- function(input, output, session) {
       plotOutput("mixedmessagesPlot")
     }
   })
-
+  
   # Generate barplot
   output$barplot <- renderPlot({
     req(nrow(selected_rows()) > 0)
@@ -115,15 +118,17 @@ server <- function(input, output, session) {
     # Calculate the sum of each emotion column
     emotion_sums <- colSums(emotions_df, na.rm = TRUE)
     
+    emotion_props <- emotion_sums / sum(emotion_sums)
+    
+    emotion_props_sorted <- sort(emotion_props, decreasing = F)
     # Sort the sums
-    emotion_sums_sorted <- sort(emotion_sums, decreasing = TRUE)
     
     # Create a bar plot
-    barplot(emotion_sums_sorted, horiz = TRUE, cex.names = 0.7, las = 1,
-            main = "Emotions in Article", xlab = "Sum")
+    barplot(emotion_props_sorted, horiz = TRUE, cex.names = 0.7, las = 1,
+            main = "Emotions in Article", xlab = "Percentage")
   })
   
-
+  
   # Generate pie chart
   output$piechart <- renderPlot({
     req(nrow(selected_rows()) > 0)
@@ -145,7 +150,7 @@ server <- function(input, output, session) {
     pie(sums, labels = labels, main = "Emotions in Article")
   })
   
-
+  
   # Generate word cloud
   output$wordcloud <- renderPlot({
     req(nrow(selected_rows()) > 0)
@@ -169,6 +174,15 @@ server <- function(input, output, session) {
     out <- data.frame(entropes, sents, stringsAsFactors = F)
     simple_plot(out$entropy,title = "Emotional Entropy",legend_pos = "top")
     
+    output$bubblePlot <- renderPlot({
+      req(nrow(selected_rows()) > 0)
+      req(input$emotionColumn)
+      ggplot(data(), aes(x = latitude, y = longitude, size = .data[[input$emotionColumn]])) + 
+        geom_point()
+    })
+    
   })
+  
+  
 }
 shinyApp(ui, server)

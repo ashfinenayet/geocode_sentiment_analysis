@@ -1,69 +1,49 @@
-library(tibble)
-library(dplyr)
+library(tidyverse)
 library(tidygeocoder)
 library(leaflet)
 library(tm)
 library(syuzhet)
-library(tidyr)
-library(tidyverse)
 library(tidytext)
-library(parallel)
-library(purrr)
+library(topicmodels)
+# Ensure article_data is a tibble and remove rows with NA locations and duplicates
+df2 <- article_data %>%
+  filter(!is.na(location)) %>%
+  distinct() %>%
+  as_tibble()
 
+# Preprocess text data: convert to lowercase, remove punctuation, whitespaces, stopwords
+corpus <- Corpus(VectorSource(df2$text)) %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(removeWords, stopwords('english'))
 
+# Add cleaned text and calculate sentiment
+df2 <- df2 %>%
+  mutate(
+    clean_text = sapply(corpus, as.character),
+    sentiment_score_clean = get_sentiment(clean_text),
+    emotion_clean = get_nrc_sentiment(clean_text)
+  )
 
-as_tibble(article_data)
+# Geocode locations
+df2 <- df2 %>%
+  geocode(location, method = 'osm', lat = latitude, long = longitude)
 
-df2 <- article_data[!is.na(article_data$location),]
-
-df2 <- df2[!duplicated(df2), ]
-
-df2 <- as_tibble(df2)
-
-corpus <- Corpus(VectorSource(df2$text)) 
-
-# Convert to lowercase
-corpus <- tm_map(corpus, content_transformer(tolower))
-
-# Remove punctuation
-corpus <- tm_map(corpus, removePunctuation)
-
-# Remove white spaces
-corpus <- tm_map(corpus, stripWhitespace)
-
-# Remove stopwords
-corpus <- tm_map(corpus, removeWords, stopwords('english'))
-
-
-df2$clean_text <- sapply(corpus, as.character)
-
-  
-df2$sentiment_score_clean <- get_sentiment(df2$clean_text)
-df2$emotion_clean <- get_nrc_sentiment(df2$clean_text)
-##### emotional ambiguity ----
-
-
-
-# geocode locations
-lat_long <- df2 %>% geocode(location, method = 'osm', lat = latitude, long = longitude)
-
-
-
-## summary
-
-# Print the summary
-
+# Summarize text
 updated_summarize <- function(text) {
-  sentences <- strsplit(text, "\\. ")[[1]]  # Splitting the text into sentences
-  if (length(sentences) > 2) {
-    sentences <- sentences[3:length(sentences)]  # Skip the first two sentences
-  }
-  summary_length <- min(5, length(sentences))  
-  return(paste(sentences[1:summary_length], collapse = ". ") %>% paste0(., "."))
+  sentences <- strsplit(text, "\\. ")[[1]]
+  summary_length <- ifelse(length(sentences) > 2, min(5, length(sentences) - 2), length(sentences))
+  paste(sentences[1:summary_length], collapse = ". ") %>% paste0(., ".")
 }
 
-lat_long$summarized_text <- sapply(lat_long$text, updated_summarize)
+df2 <- df2 %>%
+  mutate(summarized_text = sapply(text, updated_summarize))
 
-## write to csv
-lat_long <- unnest(lat_long, emotion_clean)
-write_csv(lat_long, "lat_long.csv")
+# Expand emotion_clean and write to CSV
+df2 %>%
+  unnest(emotion_clean) %>%
+  write_csv("lat_long.csv")
+
+
+

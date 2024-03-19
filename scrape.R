@@ -73,4 +73,5 @@ scrape_data <- function(link) {
 # parallel processing
 article_data <- future_map_dfr(article_links, scrape_data, .progress = TRUE)
 
+test_article <- scrape_data(article_links[[1]])
 
