@@ -8,6 +8,7 @@ library(tidygeocoder)
 library(progress)
 library(furrr)
 library(future)
+library(tibble)
 
 plan(multisession, workers = 3)
 base_url <- "https://apnews.com/"
@@ -57,7 +58,6 @@ scrape_data <- function(link) {
       "Location not found"
     }
     
-    
     tibble(
       title = article_title,
       location = extracted_location,
@@ -65,13 +65,13 @@ scrape_data <- function(link) {
       link = link  
     )
   }, error = function(e) {
+    # Print error message for debugging purposes
+    message("Error: ", e$message)
     NULL  # Return NULL in case of an error
   })
 }
 
-
 # parallel processing
 article_data <- future_map_dfr(article_links, scrape_data, .progress = TRUE)
 
-test_article <- scrape_data(article_links[[1]])
 
