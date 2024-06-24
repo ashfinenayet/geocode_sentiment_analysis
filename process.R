@@ -5,6 +5,7 @@ library(tm)
 library(syuzhet)
 library(tidytext)
 library(topicmodels)
+library(countrycode)
 # Ensure article_data is a tibble and remove rows with NA locations and duplicates
 df2 <- article_data %>%
   filter(!is.na(location)) %>%
@@ -44,6 +45,5 @@ df2 <- df2 %>%
 df2 %>%
   unnest(emotion_clean) %>%
   write_csv("lat_long.csv")
-
 
 
